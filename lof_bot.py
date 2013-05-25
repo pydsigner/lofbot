@@ -25,7 +25,7 @@ Copyright (c) 2012-2013 Daniel Foerster/Dsigner Software <pydsigner@gmail.com>
 and released under the GPL, version 3 or later.
 """
 
-__version__ = '2.1.0'
+__version__ = '2.1.0r1'
 
 
 import sys

@@ -53,11 +53,11 @@ def tell(client, nick, crawler):
     # Refresh the playerlist to avoid droppage
     client.installed_mods['online'].get_playerlist(client)
     if rec in client.online_players:
-        client.whisper(rec, nick + 'says to tell you: "%s"' % (msg))
+        client.whisper(rec, '%s says to tell you: "%s"' % (nick, msg))
         return 'Sent.'
     
     text = (time.strftime('At %H:%M:%S on %d %B %Y, ', time.gmtime())
-            + nick + ' said to tell you: "%s"' % msg
+            '%s said to tell you: "%s"' % (nick, msg)
            )
     
     Message(dict(text=text, recipient=rec)).add()
