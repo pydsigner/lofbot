@@ -1,0 +1,6 @@
+config.py
+*.pyc
+*.log
+database.sqlite
+lof_bot/*
+.hidden/*
