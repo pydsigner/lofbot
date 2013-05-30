@@ -56,7 +56,7 @@ def tell(client, nick, crawler):
         client.whisper(rec, '%s says to tell you: "%s"' % (nick, msg))
         return 'Sent.'
     
-    text = (time.strftime('At %H:%M:%S on %d %B %Y, ', time.gmtime())
+    text = (time.strftime('At %H:%M:%S on %d %B %Y, ', time.gmtime()) + 
             '%s said to tell you: "%s"' % (nick, msg)
            )
     
