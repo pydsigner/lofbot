@@ -170,4 +170,4 @@ def recent(client, nick, crawler):
         new = not new
     
     close_connection()
-    return msg
+    return msg[:-2] + '.'
