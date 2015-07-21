@@ -64,4 +64,4 @@ def tell(client, nick, crawler):
     get_connection().commit()
     close_connection()
     
-    return 'Saved.'
+    return 'Saved.       If you\'re wondering what that means, it means the person you are trying to send a message to is offline and the message will be saved until they come online again.'

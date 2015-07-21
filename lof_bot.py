@@ -21,38 +21,115 @@ looked up in the src directory of the Manaplus source distribution.
 LICENSING
 +++++++++
 
-Copyright (c) 2012-2013 Daniel Foerster/Dsigner Software <pydsigner@gmail.com> 
-and released under the GPL, version 3 or later.
+Copyright (c) 2012-2015 Daniel Foerster/Dsigner Software <pydsigner@gmail.com> 
+and released under the Apache License, version 2.0.
 """
 
-__version__ = '2.1.0r2'
+__version__ = '2.2.1'
 
 
 import sys
-import socket
 import time
-import urllib
-from thread import start_new_thread, allocate_lock
+import socket
+socket.setdefaulttimeout(120)
 
+from taskit.threaded import threaded, allocate_lock
 from taskit.log import *
 
+from utils import Vector
 from wire import *
 import config
 import commands
 
 
-### A few utils
+### Constants
 
-def threaded(func, *args, **kw):
-    start_new_thread(func, args, kw)
+PACKET = 'PDUMP'
 
 
-class _LoF_URLOpener(urllib.URLopener): 
-    def __init__(self, *args): 
-        self.version = 'Mozilla/5.0 (LoFBot)'
-        urllib.URLopener.__init__(self, *args)
+### Specialized logger
 
-urllib._urlopener = _LoF_URLOpener()
+
+class LOFLogNode(LoggerNode):
+    def make_client_log(self, client):
+        def log(level, msg):
+            self.__call__(level, msg, client.account)
+        return log
+    
+    # I really didn't want to copy-hack this bit from taskit.log, but this is 
+    # currently very much a special case sub-class
+    def __call__(self, importance, msg, title=''):
+        """
+        Log message `' '.join(msg)` with `importance` importance.
+        """
+        ## Quick-cache for speed... really!
+        allowed = self.allowed
+        ## Ignore dis-allowed importances.
+        if allowed is not None and importance not in allowed:
+            return False
+        
+        for logger in self.children:
+            # Yes, we're completely redoing this just to change this call. 
+            # TODO: Something to think about for the next version of taskit.log...
+            ## .__call__() is much faster for classes, but has bad aesthetics...
+            logger(importance, msg, title)
+        
+        return True
+
+
+class LOFFileLog(LOFLogNode):
+    def __init__(self, fobj, allowed=None, flush=5, children=()):
+        """
+        fobj  -- The file-like object to be written to.
+        flush -- How many lines to write before flush()ing if greater than 
+                 zero, otherwise flush will not be called and the close() 
+                 method will have to be used to save data.
+        """
+        LoggerNode.__init__(self, children, allowed)
+        
+        self.fobj = fobj
+        self.flush = flush
+        # Set up the flush counter.
+        self.count = 0
+    
+    def _format(self, level, msg, title):
+        level = {INFO: 'info:',
+                 ERROR: 'ERROR',
+                 IMPORTANT: '<IMP>'
+                 }.get(level, level.lower()[:5])
+        
+        t = time.strftime('%H:%M:%S %d.%m.%y')
+        
+        return '%s  %s%s\t%s\n' % (t, title.ljust(15), level, msg)
+    
+    # I really didn't want to copy-hack this bit from taskit.log, but this is 
+    # currently very much a special case sub-class
+    def __call__(self, importance, msg, title=''):
+        ## Let the super-class take care of the children...
+        res = LOFLogNode.__call__(self, importance, msg, title)
+        
+        ## If we aren't logging this event... well... then don't!
+        if not res:
+            return False
+        
+        # Yes, we're completely redoing this just to change this call. 
+        # TODO: Something to think about for the next version of taskit.log...
+        ## Then take care of our handling.
+        self.fobj.write(self._format(importance, msg, title))
+        if self.flush:
+            self.count += 1
+            if self.count == self.flush:
+                self.fobj.flush()
+                self.count = 0
+        
+        return True
+    
+    def close(self):
+        """
+        Close the underlying file. Does not close child loggers; see 
+        `close_children()`.
+        """
+        self.fobj.close()
 
 
 ### Base client
@@ -74,7 +151,11 @@ class TMWAClient(object):
           S_NORM_MSG=self.got_msg, S_EMOTE=self.got_emote, 
           S_OTHER_MSG=self.got_server, S_WHISPER=self.got_whisper, 
           S_NAME_RES=self.got_name_res, S_NAME_RES2=self.got_name_res, 
-          S_REMOVE=self.got_remove, S_XXX_USED_AFTER_DEATH=self.got_xxx_ad)
+          S_REMOVE=self.got_remove, S_XXX_USED_AFTER_DEATH=self.got_xxx_ad,
+          S_PING=self.got_ping)
+        
+        # Personalize the logger
+        self.log = self.log.make_client_log(self)
     
     def _handle_packet(self, packet):
         name = PACKET_NAMES.get(packet.packet_id)
@@ -98,7 +179,7 @@ class TMWAClient(object):
         
         self.buff = PacketBuffer()
         
-        print 'Connecting to the login server...'
+        self.log(IMPORTANT, 'Connecting to the login server...')
         
         try:
             login = socket.socket()
@@ -106,6 +187,8 @@ class TMWAClient(object):
         except socket.error:
             log(ERROR, 'Could not connect to the login server!')
             return False
+        
+        self.log(IMPORTANT, 'Connected to the login server!')
         
         p = PacketOut(C_L_LOGIN, self.account, self.pswd)
         p.send(login)
@@ -118,8 +201,11 @@ class TMWAClient(object):
                 break
             self.buff.feed(data)
             for packet in self.buff:
-                if packet == S_CSERV:
-                    print 'Successfully logged in!'
+                if packet == S_LOGIN_ERROR:
+                    self.log(ERROR, 'Could not log in!')
+                    return False
+                elif packet == S_CSERV:
+                    self.log(IMPORTANT, 'Successfully logged in!')
                     id1, accid, id2, sex, charip, charport = packet.parse()
                     login.close()
                     break
@@ -131,13 +217,14 @@ class TMWAClient(object):
         
         self.buff.reset()
         
-        print 'Connecting to the character server...'
+        charserv = (self.server if self.same_ip else charip, charport)
+        self.log(IMPORTANT, 'Connecting to the character server (%s:%s)...' % charserv)
         
         try:
             char = socket.socket()
-            char.connect((self.server if self.same_ip else charip, charport))
-        except socket.error:
-            log(ERROR, 'Could not connect to the character server!')
+            char.connect(charserv)
+        except socket.error as e:
+            log(ERROR, 'Could not connect to the character server (%s)!' % e)
             return False
         
         p = PacketOut(C_C_LOGIN, accid, id1, id2, sex)
@@ -155,10 +242,10 @@ class TMWAClient(object):
             self.buff.feed(data)
             for packet in self.buff:
                 if packet == S_PICK_CHAR:
-                    print 'Picking character...'
+                    self.log(IMPORTANT, 'Picking character...')
                     PacketOut(C_PICK_CHAR, self.cindex).send(char)
                 elif packet == S_MSERV:
-                    print 'Received MServ information.'
+                    self.log(IMPORTANT, 'Received MServ information.')
                     charid, mapip, mapport = packet.parse()
                     char.close()
                     break
@@ -170,13 +257,13 @@ class TMWAClient(object):
         
         self.buff.reset()
         
-        print 'Connecting to the map server...'
+        self.log(IMPORTANT, 'Connecting to the map server...')
         
         try:
             mapserv = socket.socket()
             mapserv.connect((self.server if self.same_ip else mapip, mapport))
         except socket.error:
-            log(ERROR, 'Could not connect to the map server!')
+            self.log(ERROR, 'Could not connect to the map server!')
             return False
         
         p = PacketOut(C_M_LOGIN, accid, charid, id1, id2, sex)
@@ -186,6 +273,7 @@ class TMWAClient(object):
         mapserv.recv(4)
         
         done = False
+        pos = Vector(0, 0)
         while not done:
             data = mapserv.recv(2024)
             if not data:
@@ -193,13 +281,16 @@ class TMWAClient(object):
             self.buff.feed(data)
             for packet in self.buff:
                 if packet == S_CONNECTED:
-                    print 'Successfully connected!'
+                    self.log(IMPORTANT, 'Successfully connected!')
+                    x, y, d = packet.parse()
+                    pos = Vector(x, y)
                     PacketOut(C_MAP_LOADED).send(mapserv)
                     done = True
                     break
         
         self.conn = mapserv
         
+        self.pos = pos
         self.account_id = accid
         self.ready = True
         self.done = False
@@ -215,7 +306,7 @@ class TMWAClient(object):
                 break
             self.buff.feed(data)
             for packet in self.buff:
-                threaded(self._handle_packet, packet)
+                threaded(self._handle_packet, (packet,))
     
     #### Commands
     
@@ -246,12 +337,15 @@ class TMWAClient(object):
     
     _e = [
       # Standard TMW (but server-side modifiable) emotes
-      (1, 'yuck', 'gross', 'bleh'), (2, 'O_o', 'surprise', '0_o'), 
+      (1, 'yuck', 'gross', 'bleh'), (2, 'O.o', 'O_o', 'surprised', '0_o'), 
       (3, ':-)', 'smile', 'happy', ':)'), (4, ':-(', ':(', 'sad'), 
-      (5, 'evil', '>:D'), (6, ';-)', ';)', 'wink'), 
+      (5, '>:D', 'evil'), (6, ';-)', ';)', 'wink'), 
       (7, 'angelic', 'angel', 'halo'), (8, 'blush', 'embarrassed'), 
       (9, ':P', ':p'), (10, '8D', ':D', 'grin'), (11, 'upset'), 
       (12, 'perturbed', 'troubled'), (13, '(...)', '...'), (14, 'speech'), 
+      # LoF-specific emotes
+      (18, '>XD', 'evil grin'), (19, 'snowman', 'frosty'), 
+      (20, 'yum', 'food', 'hungry'),
       
       # ManaPlus emotes
       (101, 'kat', 'kitty', 'cat', ':3'),(102, 'XD', 'lol', 'laugh', '><'), 
@@ -265,7 +359,8 @@ class TMWAClient(object):
       (116, 'purple'), (117, '(@#!)', 'swear'), (118, 'heart'), (119, 'blank'), 
       (120, 'pumpkin'), (121, 'vicious', 'deadly'), (122, 'epic'), 
       (123, 'geek'), (124, 'mimi', 'shy'), (125, 'alien', 'bug'), 
-      (126, 'troll'), (127, 'pain', 'metal'), (128, 'tears', 'cry', 'crying')
+      (126, 'troll'), (127, 'pain', 'metal'), 
+      (128, ':\'(', 'tears', 'cry', 'crying')
     ]
     
     emote_id_db = {}
@@ -365,6 +460,11 @@ class TMWAClient(object):
         Callback for being removals
         """
     
+    def got_ping(self, *args):
+        """
+        Callback for ping responses
+        """
+    
     def got_xxx_ad(self, *args):
         pass
     def got_xxx_ad2(self, *args):
@@ -374,6 +474,15 @@ class TMWAClient(object):
         """
         Callback for unknown packets (e.g. for research and learning purposes)
         """
+    
+    ### Class-wide setup
+    
+    @classmethod
+    def set_log(cls, log):
+        """
+        Set the logging agent for this client class.
+        """
+        cls.log = log
 
 
 ### Base for all LoF bots
@@ -388,12 +497,16 @@ class BotBase(TMWAClient):
     
     ### Mod handler inserts
     
-    handler_names = ['emote', 'msg', 'server', 'name_res', 'remove', 'unknown']
+    handler_names = ['emote', 'msg', 'server', 'name_res', 'remove', 'ping', 
+                     'unknown']
     _generated_handlers = False
     
     
     def __init__(self, *args, **kw):
         TMWAClient.__init__(self, *args, **kw)
+        
+        # Initialize channel
+        self.channel = 'main'
         
         # Yup, that's this class. We essentially have a work-around here that 
         # allows us not to define these methods manually. Only do it once.
@@ -410,7 +523,6 @@ class BotBase(TMWAClient):
     @classmethod
     def _mk_handler(cls, name):
         def doer(self, *args, **kw):
-            #print args, kw
             for h in self.handlers[name]:
                 h(self, *args, **kw)
         setattr(cls, 'got_' + name, doer)
@@ -435,7 +547,7 @@ class BotBase(TMWAClient):
     
     def main(self):
         if self.periodic_cbs:
-            threaded(self.periodic)
+            threaded(self.periodic, ())
         TMWAClient.main(self)
     
     def periodic(self):
@@ -461,7 +573,7 @@ class BotBase(TMWAClient):
                 time.sleep(adjusted)
     
     def got_whisper(self, whom, msg):
-        print '%s: %s' % (whom, msg)
+        log(INFO, '%s: %s' % (whom, msg))
         response = commands.evaluate(self, whom, msg)
         if response:
             for L in response.split('\n'):
@@ -473,14 +585,10 @@ class BotBase(TMWAClient):
     def got_xxx_ad2(self, *args):
         log(INFO, 'sending reload finish 2')
     
-    ### Class-wide bot setup
+    def set_channel(self, channel):
+        self.channel = channel
     
-    @classmethod
-    def set_log(cls, log):
-        """
-        Set the logging agent for this bot class.
-        """
-        cls.log = log
+    ### Class-wide bot setup
     
     @classmethod
     def set_mods(cls, mods):
@@ -491,7 +599,18 @@ class BotBase(TMWAClient):
     
     @classmethod
     def set_mod_conf(cls, mod_conf):
+        """
+        Set the mod configurations dictionary for this bot class.
+        """
         cls.mod_conf = mod_conf
+    
+    def sleep(self, ms):
+        """
+        A lag-adjusting sleep utility. While rather dumb, this function can be 
+        over-ridden for superior results.
+        """
+        # We just assume that we have 200ms of lag, and cuts that much out.
+        time.sleep((ms - 200) / 1000.)
 
 
 ### LoF slave bot
@@ -537,11 +656,13 @@ class LOFBot(BotBase):
     
     def spawn_slaves(self, slavedefs):
         """
-        `slavedefs` -- An iterable of (account, password, direction) groups
+        `slavedefs` -- An iterable of (account, channel, password, direction) 
+                       groups
         """
         for nick, pswd, facing in slavedefs:
-            slave = SlaveBot(self, facing, self.server, self.port, nick, pswd)
-            threaded(slave.go)
+            slave = SlaveBot(self, facing, self.server, self.port, nick, pswd, self.same_ip)
+            #slave.set_channel(channel)
+            threaded(slave.go, ())
             self.slavelist.append(slave)
     
     def reset_commands(self):
@@ -554,12 +675,13 @@ class LOFBot(BotBase):
         Broadcast a message through the master and the slaves. 
         
         `message`     -- the message to broadcast.
-        `skip_slave`  -- optional slave instance to skip.
+        `skip_slave`  -- optional slave instance to skip; also causes the 
+                         master to not be skipped.
         `skip_master` -- boolean flag defaulting to True determining whether or 
                          not the master is skipped.
         `**kw`        -- ignored
         """
-        if not skip_master:
+        if skip_slave or not skip_master:
             self.msg(message)
         for slave in self.slavelist:
             if slave.ready and slave is not skip_slave:
@@ -567,29 +689,30 @@ class LOFBot(BotBase):
     
     def got_emote(self, being_id, emote_id):
         BotBase.got_emote(self, being_id, emote_id)
-        print 'EMOTE: %s->%s' % (being_id, emote_id)
+        self.log(INFO, 'EMOTE: %s->%s' % (being_id, emote_id))
     
     def got_name_res(self, being_id, name):
         BotBase.got_name_res(self, being_id, name)
-        print 'NAME RES: %s is %s' % (being_id, name)
+        self.log(INFO, 'NAME RES: %s is %s' % (being_id, name))
     
     def got_msg(self, being_id, msg, source_slave=None):
-        print 'MSG:', msg
-        sender, msg = msg.split(' : ', 1)
-        BotBase.got_msg(self, sender, msg, being_id=being_id, 
-                        skip_slave=source_slave)
+        self.log(INFO, 'MSG: %s: %s' % (being_id, msg))
+        def cb(sender):
+            BotBase.got_msg(self, sender, msg, being_id=being_id, 
+                            skip_slave=source_slave)
+        self.on_name_res(being_id, cb)
     
     def got_server(self, msg):
         BotBase.got_server(self, msg)
-        print 'SERVER:', msg
+        self.log(INFO, 'SERVER: %s' % msg)
     
     def got_unknown(self, packet):
         packbody = ' '.join('%02x' % ord(c) for c in packet.data)
-        log(DEBUG, '**%04x**: %s' % (packet.packet_id, packbody))
+        self.log(PACKET, '**%04x**: %s' % (packet.packet_id, packbody))
     
     @staticmethod
-    def catch_afk(client, nick, *args):
-        if args[0] == '*AFK*:':
+    def catch_afk(client, nick, crawler):
+        if crawler.normal(False).lower() == '*afk*:':
             return True
 
 
@@ -599,24 +722,38 @@ if __name__ == '__main__':
     heading = '=' * 5 + ' %s ' + '=' * 15
     
     # File outs
-    _baslog = FileLogger(open('lofbot.log', 'a'), [INFO, IMPORTANT, ERROR], 2)
-    _implog = FileLogger(open('lofbot.imp.log', 'a'), [IMPORTANT, ERROR], 2)
-    _deblog = FileLogger(open('lofbot.deb.log', 'a'), flush=2)
+    _baslog = LOFFileLog(open('lofbot.log', 'a'), [INFO, IMPORTANT, ERROR], 2)
+    _implog = LOFFileLog(open('lofbot.imp.log', 'a'), [IMPORTANT, ERROR], 2)
+    _deblog = LOFFileLog(
+      open('lofbot.deb.log', 'a'), [DEBUG, INFO, IMPORTANT, ERROR], 2
+    )
+    _netlog = LOFFileLog(open('lofbot.net.log', 'a'), [PACKET, INFO], 2)
     
     # Console outs
-    _errlog = FileLogger(sys.stderr, [ERROR], 0)
-    _outlog = FileLogger(sys.stdout, [INFO, IMPORTANT], 0)
+    _errlog = LOFFileLog(sys.stderr, [ERROR], 0)
+    _outlog = LOFFileLog(sys.stdout, [INFO, IMPORTANT], 0)
     
     # Master
-    log = LoggerNode((_baslog, _implog, _deblog, _outlog, _errlog))
+    log = LOFLogNode((_baslog, _implog, _deblog, _netlog, _outlog, _errlog))
     
     # stdio
     sys.stdout = OutToLog(log)
-    sys.stderr = OutToError(log)
+    #sys.stderr = OutToError(log)
+    
+    ### Load command-line arguments...
+    
+    changes = dict(both_enable=[], both_disable=[], master_enable=[], 
+                   master_disable=[], slave_enable=[], slave_disable=[])
+    
+    use_lofd = False
+    for arg in sys.argv[1:]:
+        if arg.lower() in ('--lofd', '-l'):
+            use_lofd = True
+            break
     
     ### Setup bot classes...
     
-    BotBase.set_log(log)
+    TMWAClient.set_log(log)
     BotBase.set_mod_conf(config.mod_conf)
     LOFBot.set_mods(config.master_mods)
     SlaveBot.set_mods(config.slave_mods)
@@ -639,13 +776,15 @@ if __name__ == '__main__':
     try:
         log(IMPORTANT, heading % 'STARTING')
         if bot.connect():
-            log(IMPORTANT, 'Successfully connected!')
             bot.spawn_slaves(config.slaves)
             bot.face(config.direction)
             bot.sit()
             bot.main()
         else:
             log(ERROR, 'Could not connect!')
+    except Exception as e:
+        sys.excepthook(*sys.exc_info())
+        log(ERROR, 'BUG: %s' % str(e))
     finally:
         log(IMPORTANT, heading % 'STOPPING')
         log.close_children()

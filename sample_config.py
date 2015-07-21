@@ -2,22 +2,18 @@
 # Edit to suit your configuration needs, then rename it `config.py`. #
 ##                                                                 ###
 
-### Server and account #######
+### Server configuration #####
 
 server = 'localhost'
 port = 6901
 same_ip = True
-account = 'GeorgeBot'
-password = 'my_p@ssw0rd_is_dud3'
 
-### Look configuration #######
+### Bot lists ################
 
-direction = 'North'
+master = ('GeorgeBot', 'channel_0', 'my_p@ssw0rd_is_dud3', 'North')
 
-### Slave list ###############
-
-slaves = [('GeorgeBot_s1', 'cH33z3_Gr1n_4_u', 'East'), 
-          ('GeorgeBot_s2', 'Lo57_1337!_5oS', 'West')]
+slaves = [('GeorgeBot_s1', 'channel_s1', 'cH33z3_Gr1n_4_u', 'East'), 
+          ('GeorgeBot_s2', 'channel_s2', 'Lo57_1337!_5oS', 'West')]
 
 ### Mod lists ################
 

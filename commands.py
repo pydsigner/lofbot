@@ -8,6 +8,8 @@ This module provides the mod_command inteface for LoF bot.
 import string
 import sys
 
+from taskit.log import ERROR
+
 
 class MissingRequirementsError(Exception):
     
@@ -96,7 +98,7 @@ def setup_commands(bot):
             full = 'mod_%s' % mod
             m = getattr(__import__('mods.%s' % full), full)
         except Exception:
-            print 'WARNING: Importing the', mod, 'mod failed!'
+            bot.log(ERROR, 'Importing the %s mod failed!' % mod)
             sys.excepthook(*sys.exc_info())
             continue
         
@@ -149,16 +151,23 @@ def setup_commands(bot):
             if reqs:
                 bot.required_mods.update(reqs)
         except Exception:
-            print 'WARNING: Unable to install the', mod, 'mod!'
+            bot.log(ERROR, 'Unable to install the %s mod!' % mod)
             del bot.installed_mods[mod]
             sys.excepthook(*sys.exc_info())
     
-    missing = bot.required_mods.copy()
-    for mod in set(bot.installed_mods) & missing:
-        missing.remove(mod)
-    
+    missing = bot.required_mods - set(bot.installed_mods)
     if missing:
         raise MissingRequirementsError(missing)
+    
+    # And now for the post-install triggers.
+    for mod, m in bot.installed_mods.items():
+        post = getattr(m, 'post_prepare', None)
+        if post:
+            try:
+                post(bot)
+            except Exception:
+                bot.log(ERROR, 'Unable to post-prepare the %s mod!' % mod)
+                sys.excepthook(*sys.exc_info())
 
 
 class Crawler(object):

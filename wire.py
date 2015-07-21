@@ -62,14 +62,14 @@ packet_lengths = [
 PACKET_IDS = dict(
   ## Client messages
   C_L_LOGIN=0x64, C_C_LOGIN=0x65, C_PICK_CHAR=0x66, 
-  C_M_LOGIN=0x72, C_MAP_LOADED=0x7d, 
+  C_M_LOGIN=0x72, C_MAP_LOADED=0x7d, C_PING=0x7e, 
   C_GOTO=0x85, C_CHANGE_ACT=0x89, C_ATTACK=0x89, C_MSG=0x8c, 
   C_NAME_REQ=0x94, C_WHISPER=0x96, C_FACE=0x9b, 
   C_EMOTE=0xbf, C_RESPAWN=0xb2, 
   
   ## Server messages
-  S_CSERV=0x69, S_PICK_CHAR=0x6b, 
-  S_MSERV=0x71, S_CONNECTED=0x73, 
+  S_CSERV=0x69, S_LOGIN_ERROR=0x6a, S_PICK_CHAR=0x6b, 
+  S_MSERV=0x71, S_CONNECTED=0x73, S_PING=0x7f, 
   S_REMOVE=0x80, S_NORM_MSG=0x8d, S_OTHER_MSG=0x8e, 
   S_NAME_RES=0x95, S_WHISPER=0x97, S_ANNOUNCE=0x9a, 
   S_XXX_USED_AFTER_DEATH=0xb0, S_XXX_USED_AFTER_DEATH2=0x01d9, 
@@ -205,6 +205,10 @@ class PacketIn(object):
         elif self == S_XXX_USED_AFTER_DEATH:
             # Finish this later...
             return ()
+        
+        elif self == S_PING:
+            # Look this up -- this isn't likely right
+            return (self.string())
     
     def skip(self, n):
         self.pos += n
@@ -258,7 +262,7 @@ class PacketIn(object):
     def coords(self):
         opos = self.pos
         self.pos += 3
-        return struct.unpack('<BBB', self.data[opos:self.pos])
+        return unpack(*struct.unpack('<BBB', self.data[opos:self.pos]))
 
 
 class PacketOut(object):
@@ -277,7 +281,7 @@ class PacketOut(object):
     
     def __eq__(self, other):
         """
-        Compare this message's ID to another ID.
+        Compare this message's ID to the given ID.
         """
         return self.packet_id == other
     
@@ -290,13 +294,13 @@ class PacketOut(object):
         """
         if self == C_L_LOGIN:
             acc, pswd = args
-            # Client version. Should we put "2" here?
+            # Client version. Need 1 currently.
             self.int32(0)
             self.string(acc, 24)
             self.string(pswd, 24)
-            # M+ has this "second version info" repurposed as an ability mask, 
-            # but we don't support anything they put there.
-            self.int8(0)
+            # ManaPlus has this "second version info" repurposed as an ability 
+            # mask, but we don't support anything they put there.
+            self.int8(3)
         
         elif self == C_C_LOGIN:
             accid, id1, id2, sex = args
@@ -333,7 +337,12 @@ class PacketOut(object):
         elif self == C_WHISPER:
             nick, msg = args
             self.int16(len(msg) + 28)
-            self.string(nick, 24)
+            try:
+                self.string(nick, 24)
+            except Exception:
+                print(' '.join('%02x' % ord(c) for c in self.data))
+                print(' '.join('%02x' % ord(c) for c in nick))
+                raise
             self.string(msg)
         
         elif self == C_FACE:
@@ -353,7 +362,7 @@ class PacketOut(object):
             being_id, keep = args
             self.int32(being_id)
             self.int8(7 if keep else 0)
-            print repr(self.data)
+            print(repr(self.data))
         
         elif self == C_GOTO:
             self.coords(*args)
@@ -381,6 +390,9 @@ class PacketOut(object):
     def string(self, s, size=None):
         if size is not None:
             s = s.ljust(size, '\0')
+        if isinstance(s, unicode):
+            # Have to do this to avoid explosions from command types > 127
+            s = s.encode()
         self.data += s
     
     def coords(self, x, y, d=-1):

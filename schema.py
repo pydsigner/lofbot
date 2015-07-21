@@ -66,4 +66,17 @@ class SingleStat(BaseMapper):
     columns = (VarChar('ref', 20), Text('data'))
 
 
-initialize_database([Listing, Message, Listener, Price, Sighting, SingleStat])
+class ListenPref(BaseMapper):
+    tablename = 'listenpref'
+
+
+class Character(BaseMapper):
+    tablename = 'character'
+    columns = (VarChar('alias', 30),    # Properly capitalized character name
+               VarChar('handle', 30),   # Lowercase character name
+               VarChar('name', 30),     # Properly capitalized master name
+               Integer('account'))
+
+
+initialize_database((Listing, Message, Listener, Price, Sighting, SingleStat, 
+                     Character))

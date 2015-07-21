@@ -1,28 +1,11 @@
-import time
 import sys
 
+from utils import isection, rotate
 import commands
 import rebuild_prices
 
 
 command_bank = {'admin': [True, '.admin']}
-
-
-def isection(itr, size):
-    """
-    Goes through `itr` and splits it up into chunks of `size`. `itr` must be 
-    subscriptable.
-    """
-    while itr:
-        yield itr[:size]
-        itr = itr[size:]
-
-
-def rotate(itr, places):
-    """
-    Rotate `itr` `places` to the left. `itr` must be subscriptable.
-    """
-    return itr[places:] + itr[:places]
 
 
 # A cheapo try-catch wrap around the "real" admin command
@@ -71,35 +54,38 @@ def admin_inner(client, nick, crawler):
         
         rot *= int(args[2])
         client.emote(10)
-        time.sleep(.4)
+        client.sleep(600)
         for d in rot:
             client.face(d)
-            time.sleep(.1)
-        time.sleep(.1)
+            client.sleep(300)
+        client.sleep(300)
         client.emote(115)
     
     
     elif cmd == 'juke':
+        # 2 args or no args
+        if len(crawler) not in (0, 2):
+            return 'Bad args! See the help sub-command.'
         args = ['u', 's'] if not text else text.lower().split()
         e_up = args[0][0] == 'u'
         s_dir = args[1][0]
         f2 = 'n' if s_dir in 'ew' else 'w'
         f3 = 's' if s_dir in 'ew' else 'e'
         
-        main = ['d', s_dir, '.5', '122', '1.']
+        main = ['d', s_dir, '.500', ':122', '.500']
         
         routine = ['u', 'd', 'u', 'd', 'u', f2, s_dir, f2, s_dir, 
-                   f3, s_dir, f3, s_dir, 'd', 'u', 'd', '127']
+                   f3, s_dir, f3, s_dir, 'd', 'u', 'd', ':127']
         routine += ['u'] if e_up else []
         for p in routine:
             main.append(p)
-            main.append('.2')
+            main.append('.500')
         
         for p in main:
-            if '.' in p:
-                time.sleep(float(p))
-            elif p.isdigit():
-                client.emote(int(p))
+            if p[0] == '.':
+                client.sleep(int(p[1:]))
+            elif p[0] == ':':
+                client.emote(int(p[1:]))
             elif p == 'u':
                 client.stand()
             elif p == 'd':
@@ -158,7 +144,13 @@ def admin_inner(client, nick, crawler):
           for ten in isection(client.mod_whois_imap.items(), 10)
         )
     
+    elif cmd == 'pos':
+        return 'x=%s, y=%s' % tuple(client.pos)
+    
     ### Resetters ############
+    
+    elif cmd == 'quit':
+        client.done = True
     
     elif cmd == 'respawn':
         client.respawn()

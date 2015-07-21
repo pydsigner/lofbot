@@ -56,7 +56,7 @@ def forward(client, nick, crawler, **kw):
 
 def listen(client, nick, crawler):
     """
-    .listen [true|false|yes|no] -- Set+get your listening status.
+    .listen [true|false|yes|no] -- Set/get your listening status.
     """
     text = crawler.chain
     do_listen = text[0].lower() in 'yt' if text else None

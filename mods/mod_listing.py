@@ -1,7 +1,7 @@
 from schema import Listing, close_connection
 
 
-command_bank = {'listing': [True, '.listing', '.list', 'list']}
+command_bank = {'listing': [True, '.listing', '.list', '.selllist', 'list']}
 
 l_disp = '(%(id)s) %(seller)s: %(quantity)s %(item)s %(word)s %(price)sgp'
 
