@@ -7,7 +7,7 @@ from schema import Sighting, SingleStat, commit_and_close, close_connection
 
 
 command_bank = {'online': [True, '.online'], 'seen': [True, '.seen', 'seen'], 
-		'recent': [True, '.recent']}
+		'recent': [True, '.recently-seen', '.recent']}
 periodic = ['get_playerlist', 'refresh_sightings']
 
 
@@ -153,7 +153,7 @@ def seen(client, nick, crawler):
 
 def recent(client, nick, crawler):
     """
-    `.recent [number:5]` -- get a list of the most recently online players.
+    `.recently-seen [number:5]` -- get a list of the most recently seen players.
     """
     number = int(crawler.chain) if crawler.chain else 5
     number = min(number, 20)    # Need a maximum!
