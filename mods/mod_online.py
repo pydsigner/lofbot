@@ -1,11 +1,13 @@
-import urllib
 from time import time, gmtime, strftime
-from thread import start_new_thread, allocate_lock
+
+from taskit.threaded import allocate_lock
+import requests
 
 from schema import Sighting, SingleStat, commit_and_close, close_connection
 
 
-command_bank = {'online': [True, '.online'], 'seen': [True, '.seen', 'seen']}
+command_bank = {'online': [True, '.online'], 'seen': [True, '.seen', 'seen'], 
+		'recent': [True, '.recent']}
 periodic = ['get_playerlist', 'refresh_sightings']
 
 
@@ -31,12 +33,10 @@ def get_playerlist(client):
     with client.mod_online_lock:
         if do:
             try:
-                remote = urllib.urlopen(client.mod_conf['online']['url'])
-                raw = remote.read()
-                remote.close()
-            except IOError as e:
+                raw = requests.get(client.mod_conf['online']['url']).text
+            except Exception as e:
                 # Get the message from the `gaierror`
-                print 'Could not fetch online list because:', e.args[1].args[1]
+                print('Could not fetch online list because: %s' % e)
                 # Can't decipher anything now!
                 return
             
@@ -107,7 +107,7 @@ def count_msg(count, ticks):
 
 def seen(client, nick, crawler):
     """
-    `.seen <player>|(most [num])` -- get the last time the given player was 
+    `.seen <player>|(most [num:5])` -- get the last time the given player was 
     seen, or a list of the most seen players.
     """
     if crawler.chain:
@@ -127,6 +127,7 @@ def seen(client, nick, crawler):
         # Show max of ten entries
         top = min(top, 10)
         
+        # Inefficient -_-
         L = list(Sighting.all())
         L.sort(key=lambda sighting: sighting.count, reverse=True)
         
@@ -146,6 +147,27 @@ def seen(client, nick, crawler):
             return 'Sorry, but I haven\'t ever seen %s.' % pl
         msg = 'I last saw %s %s. ' % (pl, time_msg(s.time, client, a0))
         msg += 'I saw %s %s. ' % (pl, count_msg(s.count, ticks))
+    
+    close_connection()
+    return msg
+
+def recent(client, nick, crawler):
+    """
+    `.recent [number:5]` -- get a list of the most recently online players.
+    """
+    number = int(crawler.chain) if crawler.chain else 5
+    number = min(number, 20)    # Need a maximum!
+    L = list(Sighting.all())
+    L.sort(key=lambda sighting: sighting.time, reverse=True)
+    
+    msg = ''
+    new = True
+    for s in L[:number]:
+        pl = s.player
+        msg += '%s was last seen %s' % (pl, time_msg(s.time, client, pl))
+        msg += ', ' if new else ';\n'
+        
+        new = not new
     
     close_connection()
     return msg
