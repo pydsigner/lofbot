@@ -54,8 +54,8 @@ packet_lengths = [
    30,  8, 34, 14,  2,  6, 26,  2, 28, 81,  6, 10, 26,  2, -1, -1, 
    -1, -1, 20, 10, 32,  9, 34, 14,  2,  6, 48, 56, -1,  4,  5, 10, 
 #0x0200
-   26,  0,  0,  0, 18,  0,  0,  0,  0,  0,  0, 19,  0,  0,  0,  0, 
-    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0
+   26,  0,  0,  0, 18,  0,  0,  0,  0,  0,  0, 19, 10,  0,  0,  0,
+    0,  0,  0,  0,  0,  4,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0
 ]
 
 # Names to ids
@@ -307,7 +307,8 @@ class PacketOut(object):
             self.int32(accid)
             self.int32(id1)
             self.int32(id2)
-            self.int16(0)
+            # This is the client major version that we are emulating (1.x)
+            self.int16(1)
             self.int8(sex)
         
         elif self == C_PICK_CHAR:
