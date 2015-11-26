@@ -307,7 +307,8 @@ class PacketOut(object):
             self.int32(accid)
             self.int32(id1)
             self.int32(id2)
-            # This is the client major version that we are emulating (1.x)
+            # This is the packet protocol version we support
+            # (see tmwa's MIN_CLIENT_VERSION defined src/mmo/version.hpp )
             self.int16(1)
             self.int8(sex)
         
