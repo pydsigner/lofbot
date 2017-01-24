@@ -34,11 +34,11 @@ def listen_cb(client, nick, msg, **kw):
 
 def check_special(client, nick, crawler):
     text = crawler.chain
-    
+
     # Just in case this person's AFK message ends with an asterisk...
-    if text.startswith('*AFK*: '):
+    if text.startswith('*AFK*:'):
         return
-    
+
     if ((text.startswith('*') and text.endswith('*')) or
         (text.startswith('[@@') and text.endswith('@@]'))):
         # Could be /me or /url
@@ -60,7 +60,7 @@ def listen(client, nick, crawler):
     """
     text = crawler.chain
     do_listen = text[0].lower() in 'yt' if text else None
-    
+
     listener = Listener.get(listener=nick)
     if not listener:
         do_listen = False if do_listen is False else True
@@ -69,7 +69,7 @@ def listen(client, nick, crawler):
         do_listen = listener.listening
     else:
         listener.listening = do_listen
-    
+
     get_connection().commit()
     close_connection()
     
