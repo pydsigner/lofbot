@@ -99,14 +99,14 @@ def ignore(client, nick, crawler):
     else:
         block, nick = True, first
 
-    current = set(listener.ignores)
+    current = set(json.loads(listener.ignores))
     if block:
         current.add(nick)
     else:
         if nick in current:
             current.remove(nick)
 
-    if current == set(listener.ignores):
+    if current == set(json.loads(listener.ignores)):
         return 'No ignore changes made.'
 
     listener.ignores = json.dumps(list(current))
