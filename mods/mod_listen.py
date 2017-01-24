@@ -83,7 +83,7 @@ def listen(client, nick, crawler):
 
 def ignore(client, nick, crawler):
     """
-    .ignore [true|false|yes|no <nick>] -- View or modify ignore list
+    .ignore [<nick> true|false|yes|no] -- View or modify ignore list
     """
     listener = Listener.get(listener=nick)
 
@@ -91,13 +91,10 @@ def ignore(client, nick, crawler):
     if not crawler.chain:
         return listener.ignores
 
-    first = crawler.quoted().lower()
-    remainder = crawler.chain
+    nick = crawler.quoted().lower()
+    remainder = crawler.chain.lower()
 
-    if remainder:
-        block, nick = first in 'yt', crawler.quoted().lower()
-    else:
-        block, nick = True, first
+    block = remainder[0] in 'yt' if remainder else True
 
     current = set(json.loads(listener.ignores))
     if block:
