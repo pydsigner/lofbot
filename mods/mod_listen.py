@@ -1,9 +1,13 @@
+import json
+
 from schema import Listener, get_connection, close_connection
 
 
-command_bank = {'forward': [True, '.forward', '.f', 'forward'], 
-                'listen': [True, '.listen']}
-filters = ['check_special'] 
+command_bank = {'forward': [True, '.forward', '.f', 'forward'],
+                'listen': [True, '.listen'],
+                'ignore': [True, '.ignore', '.block'],
+                }
+filters = ['check_special']
 handlers = dict(msg='listen_cb')
 requires = ['online']
 
@@ -28,7 +32,8 @@ def listen_cb(client, nick, msg, **kw):
     client.broadcast(msg, **kw)
     for listener in Listener.filter(listening=True):
         name = listener.listener
-        if nick != name and name.lower() in client.online_players:
+        ignores = json.loads(listener.ignores)
+        if nick != name and nick.lower() not in ignores and name.lower() in client.online_players:
             client.whisper(name, msg)
 
 
@@ -64,7 +69,7 @@ def listen(client, nick, crawler):
     listener = Listener.get(listener=nick)
     if not listener:
         do_listen = False if do_listen is False else True
-        Listener(dict(listener=nick, listening=do_listen)).add()
+        Listener(dict(listener=nick, listening=do_listen, ignores='[]')).add()
     elif do_listen is None:
         do_listen = listener.listening
     else:
@@ -72,5 +77,41 @@ def listen(client, nick, crawler):
 
     get_connection().commit()
     close_connection()
-    
+
     return 'You are%s listening.' % ('' if do_listen else 'n\'t')
+
+
+def ignore(client, nick, crawler):
+    """
+    .ignore [true|false|yes|no <nick>] -- View or modify ignore list
+    """
+    listener = Listener.get(listener=nick)
+
+    # Return current ignore list if no args are passed
+    if not crawler.chain:
+        return listener.ignores
+
+    first = crawler.quoted().lower()
+    remainder = crawler.chain
+
+    if remainder:
+        block, nick = first in 'yt', crawler.quoted().lower()
+    else:
+        block, nick = True, first
+
+    current = set(listener.ignores)
+    if block:
+        current.add(nick)
+    else:
+        if nick in current:
+            current.remove(nick)
+
+    if current == set(listener.ignores):
+        return 'No ignore changes made.'
+
+    listener.ignores = json.dumps(list(current))
+    get_connection().commit()
+    close_connection()
+
+    msg = 'Ignoring %s' if block else 'Unignoring %s.'
+    return msg % nick

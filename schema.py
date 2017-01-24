@@ -43,7 +43,7 @@ class Message(BaseMapper):
 
 class Listener(BaseMapper):
     tablename = 'listener'
-    columns = (VarChar('listener', 30), Integer('listening'))
+    columns = (VarChar('listener', 30), Integer('listening'), Text('ignores'))
 
 
 class Price(BaseMapper):
